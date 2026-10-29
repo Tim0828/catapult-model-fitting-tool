@@ -14,8 +14,8 @@ cd web
 python -m http.server 8000      # then browse to http://localhost:8000
 ```
 
-**Lesson setup:** edit [`web/js/config.js`](web/js/config.js) with your catapult's dimensions, springs, settings and
-targets. See [`docs/TEACHER_GUIDE.md`](docs/TEACHER_GUIDE.md).
+**Lesson setup:** edit [`web/js/config.js`](web/js/config.js) with your catapult's starting dimensions, band settings
+and targets. See [`docs/TEACHER_GUIDE.md`](docs/TEACHER_GUIDE.md).
 
 **Scoreboard (optional):**
 
@@ -58,10 +58,13 @@ catapult-tool/
 * **The Python reference is the source of truth.** It uses `solve_ivp` with tight tolerances and event detection.
   The JS uses RK4 with a bisection root-find on the landing step, and has to match the reference to within 1 µm on
   102 generated cases.
-* **Few fit parameters.** Range data only constrain `efficiency × spring energy ÷ effective mass`, so students do
-  not tune K, I or m. They get an *efficiency* slider, an optional *air resistance* slider (model v2) and a
-  *release angle correction*. The measured constants are in a collapsible teacher panel, which also explains
-  the degeneracy.
+* **Few fit parameters, the rest measured.** Range data only constrain
+  `efficiency × band energy ÷ effective mass`, so K, I and m cannot be fitted from shots. Students *measure* them
+  in the *Catapult & bands* tab: lengths, ball, arm and cup masses (the arm inertia is computed from these), and
+  the stiffness of one elastic band from a hanging-weight test with a straight-line fit. Then they *fit* only an
+  efficiency, optional air resistance (model v2) and a release angle correction.
+* **Elastic bands, 1–6.** The number of bands is a catapult setting stored with every shot. Bands act in parallel
+  (K = n · k_band).
 * **One scoring rule, implemented twice.** It lives in `analysis.js` (students' practice score) and
   `scoring.py` (official scoreboard). Both are tested against the same cases.
 
@@ -76,7 +79,7 @@ python scripts/run_browser_tests.py     # JS tests vs reference + app smoke test
 
 You can also open `web/tests/index.html` directly in any browser to run the JS tests.
 
-Current status: 44/44 Python tests and 115/115 JS tests pass. The app smoke test passes. The UI was checked by
+Current status: 44/44 Python tests and 118/118 JS tests pass. The app smoke test passes. The UI was checked by
 screenshot in light and dark mode at desktop and phone (375 px) width.
 
 When you change the physics, change `reference/catapult_model.py` first, then mirror the change in
@@ -84,10 +87,13 @@ When you change the physics, change `reference/catapult_model.py` first, then mi
 
 ## Known limitations and open items
 
-* **Placeholder parameters.** The default dimensions, inertia and spring constants are estimates. Measure the
-  printed catapult and the springs before a lesson (see the teacher guide).
-* **Controllable settings are still open.** The review asked which values to use for the angle stop, spring
-  choice and pull-back. The config supports both notches and continuous sliders. The teacher guide has a
+* **Placeholder parameters.** The starting dimensions, masses and band stiffness in `config.js` are estimates.
+  Students can re-measure them in the tool. Teachers may even make them deliberately a bit off (see the teacher
+  guide).
+* **Rubber is not a linear spring.** The model uses Hooke's law per band. The band fit shows R² so students can
+  see how well that holds.
+* **Controllable settings are still partly open.** The review asked which values to use for the angle stop, band
+  count and pull-back. The config supports both notches and continuous sliders. The teacher guide has a
   recommendation, but the final choice depends on the printed design.
 * **English UI only.** All text is in `index.html` and `app.js`. A Dutch translation would be a straightforward
   next step.

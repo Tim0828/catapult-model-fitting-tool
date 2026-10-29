@@ -1,5 +1,5 @@
 /**
- * Measurement statistics, fit quality and prediction scoring.
+ * Measurement statistics, fit quality, band calibration and prediction scoring.
  *
  * Pure functions, no DOM. Distances are in metres. The scoring rule must stay
  * identical to scoreboard/scoring.py (both are checked against the same cases
@@ -67,5 +67,38 @@
     return Math.max(r.maxPoints - bands, 0);
   }
 
-  return { mean, sampleStd, summarize, compare, scoreShot };
+  /** Least-squares line y = slope * x + intercept, or null if it is undetermined. */
+  function fitLine(xs, ys) {
+    if (xs.length < 2) return null;
+    const mx = mean(xs);
+    const my = mean(ys);
+    let sxx = 0;
+    let sxy = 0;
+    let syy = 0;
+    xs.forEach((x, i) => {
+      sxx += (x - mx) ** 2;
+      sxy += (x - mx) * (ys[i] - my);
+      syy += (ys[i] - my) ** 2;
+    });
+    if (sxx === 0) return null;
+    const slope = sxy / sxx;
+    return { slope, intercept: my - slope * mx, r2: syy === 0 ? 1 : (sxy * sxy) / (sxx * syy) };
+  }
+
+  /**
+   * Band stiffness from a hanging-weight test: Hooke's law F = k (L - L0).
+   *
+   * @param {{lengthM: number, forceN: number}[]} points  band length and pulling force
+   * @returns {{k: number, l0: number, r2: number}|null}  null if no positive stiffness fits
+   */
+  function fitBand(points) {
+    const fit = fitLine(
+      points.map((p) => p.lengthM),
+      points.map((p) => p.forceN)
+    );
+    if (!fit || !(fit.slope > 0)) return null;
+    return { k: fit.slope, l0: -fit.intercept / fit.slope, r2: fit.r2 };
+  }
+
+  return { mean, sampleStd, summarize, compare, scoreShot, fitLine, fitBand };
 });

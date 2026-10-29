@@ -1,29 +1,32 @@
 /**
  * Lesson configuration: the ONLY file a teacher needs to edit.
  *
- * Fill in the measured dimensions of your printed catapult, the springs or
- * rubber bands you hand out, and which settings the students can control.
- * Lengths in metres, masses in kg, distances shown to students in cm.
+ * Fill in the dimensions of your printed catapult, the elastic bands, and
+ * which settings the students can control. Lengths in metres, masses in kg,
+ * distances shown to students in cm.
  */
 window.CATAPULT_CONFIG = {
   title: "Catapult Challenge",
 
-  /** Measured from the printed parts (see docs/TEACHER_GUIDE.md). */
+  /**
+   * STARTING values of the catapult measurements. Students see and can
+   * re-measure all of these in the "Catapult & bands" tab. For a "check the
+   * measurements" exercise, enter values here that are a little off.
+   */
   catapult: {
     lLeft: 0.05, // pivot -> centre of the ball cup
-    lRight: 0.05, // pivot -> spring attachment point on the arm
-    lFoot: 0.08, // pivot -> spring anchor on the foot
+    lRight: 0.05, // pivot -> band hook on the arm
+    lFoot: 0.08, // pivot -> band hook on the foot
     pivotHeight: 0.08, // pivot -> table/floor the ball lands on
-    inertia: 1.5e-5, // arm + cup about the pivot; use rodInertia() or the reference notebook
-    mass: 0.01, // ball
+    ballMass: 0.01, // kg
+    armMass: 0.01, // kg, printed arm (treated as a uniform rod)
+    cupMass: 0.003, // kg, cup at the end of the arm (0 if it is weighed with the arm)
+    bandK: 20, // N/m, stiffness of ONE band: students should estimate this
+    bandL0: 0.04, // m, rest length of one band (as stretched between the hooks)
   },
 
-  /** Springs / rubber bands. k in N/m, l0 = rest length in m (0 for an ideal spring). */
-  springs: [
-    { id: "soft", name: "Soft (green)", k: 60, l0: 0.02 },
-    { id: "medium", name: "Medium (blue)", k: 100, l0: 0.02 },
-    { id: "stiff", name: "Stiff (red)", k: 160, l0: 0.02 },
-  ],
+  /** Number of elastic bands students can put on (they act in parallel: k_total = n * k). */
+  bands: { min: 1, max: 6, default: 2 },
 
   /**
    * Controllable settings. Use `notchesDeg` when the catapult has fixed
@@ -45,7 +48,6 @@ window.CATAPULT_CONFIG = {
       defaultDeg: 30,
       notchesDeg: [10, 20, 30, 40, 50, 60],
     },
-    defaultSpring: "medium",
   },
 
   /** Parameters students fit. Set `show: false` to hide a slider. */

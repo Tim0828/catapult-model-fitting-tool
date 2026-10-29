@@ -38,6 +38,20 @@ $$v_0 = \sqrt{\frac{2\eta\,\Delta E}{m_\text{eff}}}$$
 The efficiency $\eta$ lumps every loss together: pivot friction, arm flex and vibration, the stop impact, and
 gravity during the swing.
 
+### Elastic bands and the arm, as the web tool uses them
+
+The catapult is loaded with $n = 1\ldots6$ identical elastic bands between the same two hooks. Bands side by side
+act in parallel, so their stiffnesses add: $K = n\,k_\text{band}$, and they share the rest length $l_0$. Students
+estimate $k_\text{band}$ and $l_0$ themselves. In a static test they hang known masses $m_j$ from one band and
+measure its length $L_j$. A least-squares line $F = k_\text{band}(L - l_0)$ with $F_j = m_j g$ gives both values.
+$R^2$ is shown, because rubber is not a perfect linear spring. Real bands also show hysteresis and stiffen at large
+stretch.
+
+The arm's moment of inertia is computed from quantities students can weigh: an arm of mass $M$ (a uniform rod) and a
+cup of mass $m_c$ at the end:
+$I = M\,(L_\text{left}^3 + L_\text{right}^3)/\big(3(L_\text{left}+L_\text{right})\big) + m_c L_\text{left}^2$.
+The physics model itself (Python and `model.js`) still takes $K$ and $I$ directly. The conversion happens in `app.js`.
+
 ## Launch
 
 The ball leaves perpendicular to the arm, so its elevation equals $\theta_f$. An optional release-angle correction
@@ -75,8 +89,9 @@ The landing point is where $y = 0$.
 ## Parameter degeneracy
 
 Range data only constrain $\eta\,\Delta E/m_\text{eff}$, and $\Delta E \propto K$. So doubling $K$ while halving
-$\eta$ gives an identical range (shown in the reference notebook). The tool therefore fixes the measured
-quantities ($K$, $l_0$, $I$, $m$, lengths) and lets students fit:
+$\eta$ gives an identical range (shown in the reference notebook). The tool breaks this degeneracy with independent
+measurements. Band stiffness comes from the hanging-weight test, and masses and lengths from a ruler and scales. All
+of these are entered in the *Catapult & bands* tab. With those fixed, students fit:
 
 1. **efficiency** $\eta$: the main knob;
 2. **air resistance** $c$ (or $b$): model v2, a small effect at catapult speeds;

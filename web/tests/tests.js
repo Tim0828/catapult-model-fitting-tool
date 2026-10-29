@@ -142,6 +142,38 @@
     });
   });
 
+  test("fitBand recovers k and rest length from exact Hooke's-law data", () => {
+    const k = 22;
+    const l0 = 0.041;
+    const pts = [0, 0.05, 0.1, 0.2].map((massKg) => {
+      const forceN = massKg * 9.81;
+      return { forceN, lengthM: l0 + forceN / k };
+    });
+    const fit = Analysis.fitBand(pts);
+    close(fit.k, k, 1e-9, "k");
+    close(fit.l0, l0, 1e-9, "l0");
+    close(fit.r2, 1, 1e-12, "r2");
+  });
+
+  test("fitBand reports a poor fit and rejects unusable data", () => {
+    const noisy = Analysis.fitBand([
+      { lengthM: 0.04, forceN: 0 },
+      { lengthM: 0.06, forceN: 0.6 },
+      { lengthM: 0.07, forceN: 0.5 },
+      { lengthM: 0.1, forceN: 1.6 },
+    ]);
+    assert(noisy && noisy.r2 < 0.98 && noisy.k > 0, "noisy fit");
+    assert(Analysis.fitBand([{ lengthM: 0.05, forceN: 1 }]) === null, "one point");
+    assert(Analysis.fitBand([{ lengthM: 0.05, forceN: 1 }, { lengthM: 0.05, forceN: 2 }]) === null, "same length");
+    assert(Analysis.fitBand([{ lengthM: 0.05, forceN: 2 }, { lengthM: 0.06, forceN: 1 }]) === null, "negative stiffness");
+  });
+
+  test("bands in parallel: n bands store n times the energy of one", () => {
+    const one = Model.releasedEnergy({ k: 20, l0: 0.04 });
+    const three = Model.releasedEnergy({ k: 3 * 20, l0: 0.04 });
+    close(three, 3 * one, 1e-12, "energy");
+  });
+
   /* Storage --------------------------------------------------------- */
 
   test("URL hash round trip keeps the data (including non-ASCII text)", () => {

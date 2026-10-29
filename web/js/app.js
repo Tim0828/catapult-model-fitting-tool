@@ -3,8 +3,8 @@
  *
  * Data flow: every user action updates `state` and calls `scheduleRender()`.
  * `render()` recomputes everything from `state` (it is cheap) and saves it.
- * Tables are rebuilt only when rows are added or removed, so typing in a
- * table input never loses focus; their computed cells are refreshed in place.
+ * Tables and forms are rebuilt only when rows are added or removed, so typing
+ * in an input never loses focus; their computed cells are refreshed in place.
  */
 (function () {
   "use strict";
@@ -15,12 +15,16 @@
   const Storage = window.CatapultStorage;
   const MiniPlot = window.MiniPlot;
 
+  const G = Model.G;
   const $ = (id) => document.getElementById(id);
   const rad = (d) => (d * Math.PI) / 180;
   const deg = (r) => (r * 180) / Math.PI;
   const cm = (m) => m * 100;
   const fmtCm = (m) => (Number.isFinite(m) ? Math.round(cm(m)) + " cm" : "–");
+  /** Spread-sized values: one decimal below 10 cm so small spreads do not show as "± 0". */
+  const fmtSpreadCm = (m) => (cm(m) < 10 ? cm(m).toFixed(1) : String(Math.round(cm(m)))) + " cm";
   const fmtDeg = (d) => Math.round(d * 10) / 10 + "°";
+  const fmtBands = (n) => n + (n === 1 ? " band" : " bands");
   const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
   const finite = (v, fallback) => (Number.isFinite(v) ? v : fallback);
   const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -45,15 +49,13 @@
 
   const SET = CFG.settings;
   const FIT = CFG.fit;
+  const BANDS = CFG.bands;
+  const TABS = ["catapult", "measure", "predict"];
 
   function defaultState() {
     return {
       team: "",
-      settings: {
-        springId: SET.defaultSpring || CFG.springs[0].id,
-        pullBackDeg: SET.pullBack.defaultDeg,
-        stopDeg: SET.stopAngle.defaultDeg,
-      },
+      settings: { bands: BANDS.default, pullBackDeg: SET.pullBack.defaultDeg, stopDeg: SET.stopAngle.defaultDeg },
       fit: {
         efficiency: FIT.efficiency.initial,
         dragModel: FIT.drag.initialModel,
@@ -61,7 +63,8 @@
         dragLinear: FIT.drag.linear.initial, // mN s/m
         releaseOffsetDeg: FIT.releaseOffset.initial,
       },
-      overrides: { catapult: {}, springs: {} },
+      catapult: Object.assign({}, CFG.catapult), // students' own measurements, SI units
+      calibration: [], // hanging-weight test of one band: {id, massG, lengthCm}
       measurements: [],
       predictions: [],
       xAxis: "pullBackDeg",
@@ -75,10 +78,8 @@
     const s = defaultState();
     if (!raw || typeof raw !== "object") return s;
     const num = (v, d) => finite(Number(v), d);
-    const springIds = CFG.springs.map((x) => x.id);
-    const springId = (v) => (springIds.includes(v) ? v : s.settings.springId);
     const settingsOf = (o) => ({
-      springId: springId(o && o.springId),
+      bands: clamp(Math.round(num(o && o.bands, s.settings.bands)), BANDS.min, BANDS.max),
       pullBackDeg: num(o && o.pullBackDeg, s.settings.pullBackDeg),
       stopDeg: num(o && o.stopDeg, s.settings.stopDeg),
     });
@@ -93,18 +94,16 @@
       dragLinear: num(f.dragLinear, s.fit.dragLinear),
       releaseOffsetDeg: num(f.releaseOffsetDeg, s.fit.releaseOffsetDeg),
     };
-    const o = raw.overrides || {};
-    Object.keys(CFG.catapult).forEach((k) => {
-      if (o.catapult && Number.isFinite(o.catapult[k])) s.overrides.catapult[k] = o.catapult[k];
+    const c = raw.catapult || {};
+    CATAPULT_FIELDS.forEach((field) => {
+      const v = Number(c[field.key]);
+      if (Number.isFinite(v) && v >= field.min) s.catapult[field.key] = v;
     });
-    springIds.forEach((id) => {
-      const so = o.springs && o.springs[id];
-      if (!so) return;
-      const clean = {};
-      if (Number.isFinite(so.k)) clean.k = so.k;
-      if (Number.isFinite(so.l0)) clean.l0 = so.l0;
-      s.overrides.springs[id] = clean;
-    });
+    s.calibration = (Array.isArray(raw.calibration) ? raw.calibration : []).map((r) => ({
+      id: typeof r.id === "string" ? r.id : newId(),
+      massG: Number.isFinite(r.massG) ? r.massG : null,
+      lengthCm: Number.isFinite(r.lengthCm) ? r.lengthCm : null,
+    }));
     s.measurements = (Array.isArray(raw.measurements) ? raw.measurements : []).map((m) =>
       Object.assign({ id: typeof m.id === "string" ? m.id : newId() }, settingsOf(m), {
         distancesCm: (Array.isArray(m.distancesCm) ? m.distancesCm : []).map(Number).filter(Number.isFinite),
@@ -117,11 +116,27 @@
         actualCm: Number.isFinite(p.actualCm) ? p.actualCm : null,
       })
     );
-    s.xAxis = raw.xAxis === "stopDeg" ? "stopDeg" : "pullBackDeg";
+    s.xAxis = ["pullBackDeg", "stopDeg", "bands"].includes(raw.xAxis) ? raw.xAxis : "pullBackDeg";
     s.targetCm = Number.isFinite(raw.targetCm) ? raw.targetCm : null;
-    s.tab = raw.tab === "predict" ? "predict" : "measure";
+    s.tab = TABS.includes(raw.tab) ? raw.tab : "measure";
     return s;
   }
+
+  /**
+   * Catapult measurements shown to students: state key, label, display unit,
+   * SI -> display factor, smallest allowed SI value.
+   */
+  const CATAPULT_FIELDS = [
+    { key: "lLeft", label: "Pivot → ball cup", unit: "cm", scale: 100, min: 1e-3 },
+    { key: "lRight", label: "Pivot → band hook on arm", unit: "cm", scale: 100, min: 1e-3 },
+    { key: "lFoot", label: "Pivot → band hook on foot", unit: "cm", scale: 100, min: 1e-3 },
+    { key: "pivotHeight", label: "Pivot height above table", unit: "cm", scale: 100, min: 1e-3 },
+    { key: "ballMass", label: "Ball mass", unit: "g", scale: 1000, min: 1e-4 },
+    { key: "armMass", label: "Arm mass", unit: "g", scale: 1000, min: 0 },
+    { key: "cupMass", label: "Cup mass (if separate)", unit: "g", scale: 1000, min: 0 },
+    { key: "bandK", label: "Stiffness of one band k", unit: "N/m", scale: 1, min: 1e-3 },
+    { key: "bandL0", label: "Rest length of one band", unit: "cm", scale: 100, min: 0 },
+  ];
 
   function loadInitialState() {
     const fromHash = Storage.decodeHash(location.hash);
@@ -142,29 +157,26 @@
   /* Model glue                                                         */
   /* ------------------------------------------------------------------ */
 
-  function catapult() {
-    return Object.assign({}, CFG.catapult, state.overrides.catapult);
-  }
-
-  function springList() {
-    return CFG.springs.map((s) => Object.assign({}, s, state.overrides.springs[s.id]));
-  }
-
-  function springById(id) {
-    const list = springList();
-    return list.find((s) => s.id === id) || list[0];
+  function armInertia(c) {
+    return Model.rodInertia(c.armMass, c.lLeft, c.lRight, c.cupMass);
   }
 
   /** Full model parameters for a set of catapult settings and the current fit. */
   function paramsFor(settings) {
-    const spring = springById(settings.springId);
+    const c = state.catapult;
     const f = state.fit;
     let drag = 0;
     if (f.dragModel === "quadratic") drag = f.dragQuadratic / 1000; // g/m -> kg/m
     else if (f.dragModel === "linear") drag = f.dragLinear / 1000; // mN s/m -> N s/m
-    return Object.assign({}, Model.DEFAULT_PARAMS, catapult(), {
-      k: spring.k,
-      l0: spring.l0 || 0,
+    return Object.assign({}, Model.DEFAULT_PARAMS, {
+      lLeft: c.lLeft,
+      lRight: c.lRight,
+      lFoot: c.lFoot,
+      pivotHeight: c.pivotHeight,
+      mass: c.ballMass,
+      inertia: armInertia(c),
+      k: settings.bands * c.bandK, // identical bands side by side add their stiffness
+      l0: c.bandL0,
       thetaI: rad(settings.pullBackDeg),
       thetaF: rad(settings.stopDeg),
       efficiency: f.efficiency,
@@ -174,34 +186,45 @@
     });
   }
 
-  function pullBackRange() {
-    const c = SET.pullBack;
-    const geomMax = Math.floor(deg(Model.maxPullBack(catapult())));
+  /** Allowed values of a setting; with notches the range spans the notches. */
+  function settingRange(key) {
+    if (key === "bands") return { min: BANDS.min, max: BANDS.max, step: 1 };
+    const c = key === "stopDeg" ? SET.stopAngle : SET.pullBack;
+    if (c.notchesDeg && c.notchesDeg.length) {
+      return { min: Math.min(...c.notchesDeg), max: Math.max(...c.notchesDeg), step: c.stepDeg };
+    }
+    if (key === "stopDeg") return { min: c.minDeg, max: c.maxDeg, step: c.stepDeg };
+    const geomMax = Math.floor(deg(Model.maxPullBack(paramsFor(state.settings))));
     return { min: c.minDeg, max: Math.min(c.maxDeg === null ? geomMax : c.maxDeg, geomMax), step: c.stepDeg };
   }
 
-  function stopRange() {
-    const c = SET.stopAngle;
-    return { min: c.minDeg, max: c.maxDeg, step: c.stepDeg };
-  }
-
-  /** Snap a setting to what the real catapult allows (a notch or a slider step). */
+  /** Snap a setting to what the real catapult allows (a notch, a slider step, a whole band). */
   function snap(key, value) {
-    const c = key === "pullBackDeg" ? SET.pullBack : SET.stopAngle;
-    const r = key === "pullBackDeg" ? pullBackRange() : stopRange();
-    if (c.notchesDeg && c.notchesDeg.length) {
-      return c.notchesDeg.reduce((best, n) => (Math.abs(n - value) < Math.abs(best - value) ? n : best));
+    const notches = { pullBackDeg: SET.pullBack.notchesDeg, stopDeg: SET.stopAngle.notchesDeg }[key];
+    if (notches && notches.length) {
+      return notches.reduce((best, n) => (Math.abs(n - value) < Math.abs(best - value) ? n : best));
     }
+    const r = settingRange(key);
     return clamp(Math.round(value / r.step) * r.step, r.min, r.max);
   }
 
-  const sameSetting = (a, b) => Math.abs(a - b) < 0.25;
+  const SETTING_KEYS = ["bands", "pullBackDeg", "stopDeg"];
+  const close = (a, b) => Math.abs(a - b) < 0.25;
+
+  /** Same catapult settings, optionally ignoring one of them (the plotted one). */
+  function sameSettings(a, b, except) {
+    return SETTING_KEYS.every((k) => k === except || close(a[k], b[k]));
+  }
+
+  function settingText(s) {
+    return fmtBands(s.bands) + ", " + fmtDeg(s.pullBackDeg) + " / " + fmtDeg(s.stopDeg);
+  }
 
   /* ------------------------------------------------------------------ */
   /* Controls                                                           */
   /* ------------------------------------------------------------------ */
 
-  const controls = {}; // key -> {set(value)} to push state back into inputs
+  const controls = {}; // key -> {sync(), setLimits()} to push state back into inputs
 
   /**
    * A labelled slider, or a select when `options` is given.
@@ -251,15 +274,16 @@
     return wrap;
   }
 
-  function angleControl(key, cfg, range, label, help) {
+  function angleControl(key, cfg, label, help) {
     const notches = cfg.notchesDeg && cfg.notchesDeg.length ? cfg.notchesDeg : null;
+    const r = settingRange(key);
     return makeControl({
       key: key,
       label: label,
       help: help,
-      min: range.min,
-      max: range.max,
-      step: range.step,
+      min: r.min,
+      max: r.max,
+      step: r.step,
       options: notches ? notches.map((n) => ({ value: n, text: n + "°" })) : null,
       format: fmtDeg,
       get: () => state.settings[key],
@@ -268,29 +292,30 @@
   }
 
   function buildSettingsControls() {
-    const box = $("settings-controls");
-    box.replaceChildren(
+    const bandOptions = [];
+    for (let n = BANDS.min; n <= BANDS.max; n++) bandOptions.push({ value: n, text: fmtBands(n) });
+    $("settings-controls").replaceChildren(
       makeControl({
-        key: "springId",
-        label: "Spring",
-        options: springList().map((s) => ({ value: s.id, text: s.name })),
-        get: () => state.settings.springId,
-        set: (v) => (state.settings.springId = v),
+        key: "bands",
+        label: "Elastic bands",
+        help: "More bands store more energy.",
+        options: bandOptions,
+        get: () => state.settings.bands,
+        set: (v) => (state.settings.bands = v),
       }),
-      angleControl("pullBackDeg", SET.pullBack, pullBackRange(), "Pull-back angle", "How far you pull the arm back."),
-      angleControl("stopDeg", SET.stopAngle, stopRange(), "Stop angle", "Where the arm hits the stop. This is also the launch angle.")
+      angleControl("pullBackDeg", SET.pullBack, "Pull-back angle", "How far you pull the arm back."),
+      angleControl("stopDeg", SET.stopAngle, "Stop angle", "Where the arm hits the stop. This is also the launch angle.")
     );
   }
 
   function buildFitControls() {
-    const box = $("fit-controls");
     const items = [];
     if (FIT.efficiency.show) {
       items.push(
         makeControl({
           key: "efficiency",
           label: "Efficiency",
-          help: "How much of the spring energy ends up in the flying ball. The rest is lost to friction, wobble, sound…",
+          help: "How much of the band energy ends up in the flying ball. The rest is lost to friction, wobble, sound…",
           min: FIT.efficiency.min,
           max: FIT.efficiency.max,
           step: FIT.efficiency.step,
@@ -302,6 +327,8 @@
     }
     if (FIT.drag.show) {
       const labels = { none: "No air resistance (model 1)", quadratic: "Air resistance ∝ speed² (model 2)", linear: "Air resistance ∝ speed" };
+      const q = FIT.drag.quadratic;
+      const l = FIT.drag.linear;
       items.push(
         makeControl({
           key: "dragModel",
@@ -309,11 +336,7 @@
           options: FIT.drag.models.map((m) => ({ value: m, text: labels[m] })),
           get: () => state.fit.dragModel,
           set: (v) => (state.fit.dragModel = v),
-        })
-      );
-      const q = FIT.drag.quadratic;
-      const l = FIT.drag.linear;
-      items.push(
+        }),
         makeControl({
           key: "dragQuadratic",
           label: "Air resistance strength",
@@ -354,71 +377,11 @@
         })
       );
     }
-    box.replaceChildren(...items);
-  }
-
-  /** Teacher panel: physical constants, in friendly units. */
-  function buildTeacherControls() {
-    const fields = [
-      ["lLeft", "Arm to cup (cm)", 100],
-      ["lRight", "Arm to spring (cm)", 100],
-      ["lFoot", "Pivot to spring anchor (cm)", 100],
-      ["pivotHeight", "Pivot height (cm)", 100],
-      ["mass", "Ball mass (g)", 1000],
-      ["inertia", "Arm inertia (g·cm²)", 1e7],
-    ];
-    const inputs = fields.map(([key, label, scale]) =>
-      el(
-        "label",
-        {},
-        label,
-        el("input", {
-          type: "number",
-          step: "any",
-          min: "0",
-          value: +(catapult()[key] * scale).toPrecision(4),
-          onchange: (ev) => {
-            const v = Number(ev.target.value) / scale;
-            if (Number.isFinite(v) && v > 0) state.overrides.catapult[key] = v;
-            else ev.target.value = +(catapult()[key] * scale).toPrecision(4);
-            refreshLimits();
-            scheduleRender();
-          },
-        })
-      )
-    );
-    springList().forEach((s) => {
-      [
-        ["k", s.name + ": k (N/m)", 1],
-        ["l0", s.name + ": rest length (cm)", 100],
-      ].forEach(([key, label, scale]) => {
-        inputs.push(
-          el(
-            "label",
-            {},
-            label,
-            el("input", {
-              type: "number",
-              step: "any",
-              min: "0",
-              value: +((s[key] || 0) * scale).toPrecision(4),
-              onchange: (ev) => {
-                const v = Number(ev.target.value) / scale;
-                if (Number.isFinite(v) && v >= 0) {
-                  state.overrides.springs[s.id] = Object.assign({}, state.overrides.springs[s.id], { [key]: v });
-                }
-                scheduleRender();
-              },
-            })
-          )
-        );
-      });
-    });
-    $("teacher-controls").replaceChildren(...inputs);
+    $("fit-controls").replaceChildren(...items);
   }
 
   function refreshLimits() {
-    const r = pullBackRange();
+    const r = settingRange("pullBackDeg");
     if (controls.pullBackDeg) controls.pullBackDeg.setLimits(r.min, r.max);
   }
 
@@ -431,8 +394,167 @@
     $("x-axis").value = state.xAxis;
   }
 
+  function applySettings(s) {
+    SETTING_KEYS.forEach((k) => (state.settings[k] = s[k]));
+    syncControls();
+    scheduleRender();
+  }
+
   /* ------------------------------------------------------------------ */
-  /* Measurements table                                                 */
+  /* Catapult & bands tab                                               */
+  /* ------------------------------------------------------------------ */
+
+  const roundForInput = (v) => +v.toPrecision(4);
+
+  function buildCatapultForm() {
+    $("catapult-form").replaceChildren(
+      ...CATAPULT_FIELDS.map((field) => {
+        const input = el("input", {
+          type: "number",
+          step: "any",
+          min: String(field.min * field.scale),
+          inputMode: "decimal",
+          id: "cat-" + field.key,
+          value: roundForInput(state.catapult[field.key] * field.scale),
+          oninput: () => {
+            const v = Number(input.value) / field.scale;
+            const ok = input.value !== "" && Number.isFinite(v) && v >= field.min;
+            input.classList.toggle("invalid", !ok);
+            if (!ok) return;
+            state.catapult[field.key] = v;
+            refreshLimits();
+            scheduleRender();
+          },
+        });
+        return el("label", { htmlFor: input.id }, el("span", {}, field.label), el("span", { class: "with-unit" }, input, field.unit));
+      })
+    );
+  }
+
+  /** Calibration rows that have both numbers, converted to SI. */
+  function calibrationPoints() {
+    return state.calibration
+      .filter((r) => Number.isFinite(r.massG) && Number.isFinite(r.lengthCm))
+      .map((r) => ({ id: r.id, lengthM: r.lengthCm / 100, forceN: (r.massG / 1000) * G }));
+  }
+
+  function rebuildCalibrationTable() {
+    const body = $("calib-table").tBodies[0];
+    if (!state.calibration.length) {
+      body.replaceChildren(el("tr", {}, el("td", { colSpan: 5, class: "empty" }, "No weights yet. Start with the band hanging without weight.")));
+      return;
+    }
+    const numberInput = (row, key, label) => {
+      const input = el("input", {
+        type: "number",
+        min: "0",
+        step: "any",
+        inputMode: "decimal",
+        value: row[key] === null ? "" : row[key],
+        "aria-label": label,
+        oninput: () => {
+          const v = Number(input.value);
+          row[key] = input.value !== "" && Number.isFinite(v) && v >= 0 ? v : null;
+          scheduleRender();
+        },
+      });
+      return input;
+    };
+    body.replaceChildren(
+      ...state.calibration.map((row, i) =>
+        el(
+          "tr",
+          { "data-id": row.id },
+          el("td", {}, String(i + 1)),
+          el("td", {}, numberInput(row, "massG", "Weight in grams, row " + (i + 1))),
+          el("td", {}, numberInput(row, "lengthCm", "Band length in cm, row " + (i + 1))),
+          el("td", { "data-cell": "force" }),
+          el(
+            "td",
+            {},
+            el(
+              "button",
+              {
+                type: "button",
+                class: "icon-btn",
+                "aria-label": "Delete weight " + (i + 1),
+                onclick: () => {
+                  state.calibration = state.calibration.filter((x) => x !== row);
+                  rebuildCalibrationTable();
+                  scheduleRender();
+                },
+              },
+              "✕"
+            )
+          )
+        )
+      )
+    );
+  }
+
+  const calibPlot = new MiniPlot($("calib-plot"), { xLabel: "band length (cm)", yLabel: "force (N)" });
+
+  function renderCalibration() {
+    const body = $("calib-table").tBodies[0];
+    state.calibration.forEach((row) => {
+      const cell = body.querySelector('tr[data-id="' + row.id + '"] [data-cell="force"]');
+      if (cell) cell.textContent = Number.isFinite(row.massG) ? ((row.massG / 1000) * G).toFixed(2) : "–";
+    });
+
+    const pts = calibrationPoints();
+    const fit = Analysis.fitBand(pts);
+    const box = $("calib-result");
+    if (!fit) {
+      box.replaceChildren(
+        el("p", {}, pts.length < 2 ? "Enter at least two weights with their band lengths to estimate k." : "These points do not give a stretchy band: check the numbers.")
+      );
+    } else {
+      const quality = fit.r2 > 0.98 ? "a very straight line" : fit.r2 > 0.9 ? "a reasonable line" : "not a straight line: rubber is not a perfect spring";
+      const same = Math.abs(fit.k - state.catapult.bandK) < 0.05 && Math.abs(fit.l0 - state.catapult.bandL0) < 5e-4;
+      box.replaceChildren(
+        el("p", {}, "One band: ", el("strong", {}, "k = " + fit.k.toFixed(1) + " N/m"), ", rest length ", el("strong", {}, (fit.l0 * 100).toFixed(1) + " cm"), "."),
+        el("p", { class: "help" }, "Fit quality R² = " + fit.r2.toFixed(3) + " (" + quality + "). Solid line: this fit. Dashed line: the values the model uses now."),
+        el(
+          "button",
+          {
+            type: "button",
+            class: "primary",
+            disabled: same,
+            onclick: () => {
+              state.catapult.bandK = fit.k;
+              state.catapult.bandL0 = Math.max(fit.l0, 0);
+              buildCatapultForm();
+              scheduleRender();
+            },
+          },
+          same ? "Used in the model ✓" : "Use these values in the model"
+        )
+      );
+    }
+
+    if ($("pane-catapult").hidden) return; // canvas has no size while the tab is hidden
+    const xs = pts.map((p) => cm(p.lengthM));
+    const ys = pts.map((p) => p.forceN);
+    const xLo = Math.min(...xs, fit ? cm(fit.l0) : Infinity, cm(state.catapult.bandL0));
+    const xHi = Math.max(...xs, xLo + 1);
+    const pad = (xHi - xLo) * 0.1 + 0.5;
+    const x0 = Math.max(0, xLo - pad);
+    const x1 = xHi + pad;
+    // A band pulls only when stretched: zero force up to its rest length, then a straight line.
+    const line = (k, l0) => [x0, clamp(cm(l0), x0, x1), x1].map((x) => [x, Math.max(0, k * (x / 100 - l0))]);
+    calibPlot.draw({
+      x: [x0, x1],
+      y: [0, Math.max(0.5, ...ys) * 1.15],
+      series: [
+        { type: "line", points: line(state.catapult.bandK, state.catapult.bandL0), color: css("--muted"), width: 1.5, dash: [5, 4] },
+        fit ? { type: "line", points: line(fit.k, fit.l0), color: css("--model"), width: 2.5 } : null,
+        { type: "points", points: pts.map((p) => ({ x: cm(p.lengthM), y: p.forceN })), color: css("--data") },
+      ].filter(Boolean),
+    });
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Shots table                                                        */
   /* ------------------------------------------------------------------ */
 
   /** "123, 118 121.5" -> [123, 118, 121.5]; null if anything is not a number. */
@@ -442,20 +564,10 @@
     return values.every((v) => Number.isFinite(v) && v >= 0) ? values : null;
   }
 
-  function settingText(s) {
-    return springById(s.springId).name + ", " + fmtDeg(s.pullBackDeg) + " / " + fmtDeg(s.stopDeg);
-  }
-
-  function applySettings(s) {
-    state.settings = { springId: s.springId, pullBackDeg: s.pullBackDeg, stopDeg: s.stopDeg };
-    syncControls();
-    scheduleRender();
-  }
-
   function rebuildMeasureTable() {
     const body = $("measure-table").tBodies[0];
     if (!state.measurements.length) {
-      body.replaceChildren(el("tr", {}, el("td", { colSpan: 9, class: "empty" }, "No measurements yet.")));
+      body.replaceChildren(el("tr", {}, el("td", { colSpan: 10, class: "empty" }, "No shots yet.")));
       return;
     }
     body.replaceChildren(
@@ -480,11 +592,12 @@
           "tr",
           { "data-id": m.id },
           el("td", {}, String(i + 1)),
-          el("td", {}, springById(m.springId).name),
+          el("td", {}, String(m.bands)),
           el("td", {}, fmtDeg(m.pullBackDeg)),
           el("td", {}, fmtDeg(m.stopDeg)),
           el("td", {}, shots),
           el("td", { "data-cell": "stats" }),
+          el("td", { "data-cell": "range" }),
           el("td", { "data-cell": "model" }),
           el("td", { "data-cell": "residual" }),
           el(
@@ -519,9 +632,20 @@
       const tr = body.querySelector('tr[data-id="' + row.id + '"]');
       if (!tr) return;
       const cell = (name) => tr.querySelector('[data-cell="' + name + '"]');
-      cell("stats").textContent = stats
-        ? fmtCm(stats.mean) + (stats.n > 1 ? " ± " + Math.round(cm(stats.std)) + " (n=" + stats.n + ")" : "")
-        : "–";
+      if (!stats) {
+        cell("stats").replaceChildren("–");
+        cell("range").replaceChildren("–");
+      } else if (stats.n === 1) {
+        cell("stats").replaceChildren(fmtCm(stats.mean), " ", el("span", { class: "muted" }, "(shoot again to see the spread)"));
+        cell("range").replaceChildren("–");
+      } else {
+        cell("stats").replaceChildren(
+          el("strong", {}, fmtCm(stats.mean)),
+          " ± " + fmtSpreadCm(stats.std) + " ",
+          el("span", { class: "muted" }, "(" + stats.n + " shots)")
+        );
+        cell("range").replaceChildren(Math.round(cm(stats.min)) + " – " + Math.round(cm(stats.max)) + " cm");
+      }
       cell("model").textContent = fmtCm(predicted);
       cell("residual").textContent = residual === null ? "–" : (residual > 0 ? "+" : "") + fmtCm(residual);
     });
@@ -531,14 +655,13 @@
   /* Prediction                                                         */
   /* ------------------------------------------------------------------ */
 
-  /** Pull-back angle that hits the target with the current spring and stop angle. */
+  /** Pull-back angle that hits the target with the current bands and stop angle. */
   function solvePrediction(targetCm) {
-    const r = pullBackRange();
+    const r = settingRange("pullBackDeg");
     const base = paramsFor(state.settings);
     const sol = Model.solveSetting(base, "thetaI", targetCm / 100, rad(Math.max(r.min, state.settings.stopDeg)), rad(r.max));
-    const pullBackDeg = snap("pullBackDeg", deg(sol.value));
-    const settings = Object.assign({}, state.settings, { pullBackDeg: pullBackDeg });
-    return { ok: sol.ok, reason: sol.reason, exactDeg: deg(sol.value), settings: settings, landing: Model.range(paramsFor(settings)) };
+    const settings = Object.assign({}, state.settings, { pullBackDeg: snap("pullBackDeg", deg(sol.value)) });
+    return { ok: sol.ok, reason: sol.reason, settings: settings, landing: Model.range(paramsFor(settings)) };
   }
 
   function buildTargetButtons() {
@@ -571,7 +694,6 @@
       return;
     }
     const p = solvePrediction(state.targetCm);
-    const spring = springById(state.settings.springId).name;
     const parts = [];
     if (!p.ok) {
       parts.push(
@@ -579,17 +701,27 @@
           "p",
           { class: "warn" },
           p.reason === "too-far"
-            ? "The model says this target is too far with this spring and stop angle. Try a stiffer spring or another stop angle."
-            : "The model says this target is too close with this spring and stop angle. Try a softer spring or another stop angle."
+            ? "The model says this target is too far with these settings. Try more bands or another stop angle."
+            : "The model says this target is too close with these settings. Try fewer bands or another stop angle."
         )
       );
     }
     parts.push(
-      el("p", {}, "To hit ", el("strong", {}, state.targetCm + " cm"), " with spring ", el("strong", {}, spring), " and stop angle ", el("strong", {}, fmtDeg(state.settings.stopDeg)), ", pull back to:"),
+      el(
+        "p",
+        {},
+        "To hit ",
+        el("strong", {}, state.targetCm + " cm"),
+        " with ",
+        el("strong", {}, fmtBands(state.settings.bands)),
+        " and stop angle ",
+        el("strong", {}, fmtDeg(state.settings.stopDeg)),
+        ", pull back to:"
+      ),
       el("p", { class: "big" }, fmtDeg(p.settings.pullBackDeg)),
       el("p", {}, "With that setting the model expects the ball at ", el("strong", {}, fmtCm(p.landing)), ".")
     );
-    const isSet = sameSetting(state.settings.pullBackDeg, p.settings.pullBackDeg);
+    const isSet = close(state.settings.pullBackDeg, p.settings.pullBackDeg);
     parts.push(
       el(
         "div",
@@ -697,15 +829,16 @@
   /* Drawing                                                            */
   /* ------------------------------------------------------------------ */
 
-  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  function css(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
 
   /** Catapult geometry in metres for arm angle theta (origin on the floor below the pivot). */
   function catapultShape(p, theta) {
-    const pivot = [0, p.pivotHeight];
     const s = Math.sin(theta);
     const c = Math.cos(theta);
     return {
-      pivot: pivot,
+      pivot: [0, p.pivotHeight],
       cup: [-p.lLeft * s, p.pivotHeight + p.lLeft * c],
       armEnd: [p.lRight * s, p.pivotHeight - p.lRight * c],
       anchor: [0, p.pivotHeight - p.lFoot],
@@ -750,11 +883,11 @@
   }
 
   /** Small legend in the sketch's top-left corner. */
-  function drawSketchLegend(ctx, p) {
+  function drawSketchLegend(ctx, p, bands) {
     const rows = [
       [css("--muted"), [5, 4], "pull-back " + fmtDeg(deg(p.thetaI))],
       [css("--plot-ink"), [], "stop " + fmtDeg(deg(p.thetaF))],
-      [css("--data"), [], "spring"],
+      [css("--data"), [], fmtBands(bands)],
     ];
     ctx.font = "12px system-ui, sans-serif";
     ctx.textAlign = "left";
@@ -793,18 +926,17 @@
     const oy = legendH + reach * scale; // pixel row of the pivot
     const toPx = (x, y) => [ox + x * scale, oy - (y - p.pivotHeight) * scale];
     drawCatapult(ctx, toPx, scale, p, { showPullBack: true });
-    drawSketchLegend(ctx, p);
+    drawSketchLegend(ctx, p, state.settings.bands);
   }
 
   const trajPlot = new MiniPlot($("traj-plot"), { xLabel: "distance from catapult (m)", yLabel: "height (m)" });
   const rangePlot = new MiniPlot($("range-plot"), { xLabel: "pull-back angle (°)", yLabel: "landing distance (m)" });
+  const X_LABELS = { pullBackDeg: "pull-back angle (°)", stopDeg: "stop angle (°)", bands: "number of elastic bands" };
 
   function drawTrajectory(p, sim) {
     const shots = [];
     state.measurements.forEach((m) => {
-      if (m.springId === state.settings.springId && sameSetting(m.pullBackDeg, state.settings.pullBackDeg) && sameSetting(m.stopDeg, state.settings.stopDeg)) {
-        m.distancesCm.forEach((d) => shots.push({ x: d / 100, y: 0 }));
-      }
+      if (sameSettings(m, state.settings)) m.distancesCm.forEach((d) => shots.push({ x: d / 100, y: 0 }));
     });
     const target = state.tab === "predict" && state.targetCm > 0 ? state.targetCm / 100 : null;
     const far = Math.max(sim.range, target || 0, ...shots.map((s) => s.x), 0.3);
@@ -839,16 +971,15 @@
 
   function drawRangePlot(comparison) {
     const key = state.xAxis;
-    const other = key === "pullBackDeg" ? "stopDeg" : "pullBackDeg";
-    const r = key === "pullBackDeg" ? pullBackRange() : stopRange();
-    rangePlot.labels.xLabel = key === "pullBackDeg" ? "pull-back angle (°)" : "stop angle (°)";
+    const r = settingRange(key);
+    rangePlot.labels.xLabel = X_LABELS[key];
 
-    const curve = [];
-    const n = 80;
-    for (let i = 0; i <= n; i++) {
-      const v = r.min + ((r.max - r.min) * i) / n;
-      curve.push([v, Model.range(paramsFor(Object.assign({}, state.settings, { [key]: v })))]);
-    }
+    // Bands only come in whole numbers, so the curve is sampled at those.
+    const xs = [];
+    if (key === "bands") for (let n = r.min; n <= r.max; n++) xs.push(n);
+    else for (let i = 0; i <= 80; i++) xs.push(r.min + ((r.max - r.min) * i) / 80);
+    const curve = xs.map((v) => [v, Model.range(paramsFor(Object.assign({}, state.settings, { [key]: v })))]);
+
     const points = comparison.rows
       .filter((c) => c.stats)
       .map(({ row, stats }) => ({
@@ -856,12 +987,13 @@
         y: stats.mean,
         lo: stats.min,
         hi: stats.max,
-        faded: !(row.springId === state.settings.springId && sameSetting(row[other], state.settings[other])),
+        faded: !sameSettings(row, state.settings, key),
       }));
     const yMax = Math.max(0.2, ...curve.map((c) => c[1]), ...points.map((pt) => pt.hi)) * 1.1;
+    const pad = key === "bands" ? 0.3 : 0;
     const current = state.settings[key];
     rangePlot.draw({
-      x: [r.min, r.max],
+      x: [r.min - pad, r.max + pad],
       y: [0, yMax],
       decorate: (ctx, toPx) => {
         const [cx] = toPx(current, 0);
@@ -885,8 +1017,9 @@
       },
       series: [
         { type: "line", points: curve, color: css("--model"), width: 2.5 },
+        key === "bands" ? { type: "points", points: curve.map(([x, y]) => ({ x, y })), color: css("--model"), radius: 3 } : null,
         { type: "points", points: points, color: css("--data") },
-      ],
+      ].filter(Boolean),
     });
   }
 
@@ -905,7 +1038,7 @@
     box.classList.remove("good", "ok", "bad");
     if (comparison.rms === null) {
       $("rms").textContent = "–";
-      $("rms-note").textContent = "add measurements to see how good your model is";
+      $("rms-note").textContent = "add shots to see how good your model is";
       return;
     }
     // Compare the model error with the shot-to-shot spread: that is the best any model can do.
@@ -919,7 +1052,7 @@
       "average miss (RMS) over " +
       comparison.n +
       (comparison.n === 1 ? " setting" : " settings") +
-      (spread ? ". Your own shots spread by about ±" + Math.round(cm(spread)) + " cm." : ". Repeat shots to see your spread.");
+      (spread ? ". Your own shots spread by about ± " + fmtSpreadCm(spread) + "." : ". Repeat shots to see your spread.");
   }
 
   function render() {
@@ -929,7 +1062,8 @@
     $("out-energy").textContent = Math.round(Model.releasedEnergy(p) * 1000) + " mJ";
     $("out-speed").textContent = sim.v0.toFixed(2) + " m/s";
     $("out-range").textContent = sim.ok ? fmtCm(sim.range) : "–";
-    $("out-meff").textContent = Math.round(Model.effectiveMass(p) * 1e4) / 10 + " g";
+    $("out-meff").textContent = (Model.effectiveMass(p) * 1000).toFixed(1) + " g";
+    $("out-inertia").textContent = (p.inertia * 1e7).toFixed(0) + " g·cm²";
 
     const comparison = Analysis.compare(
       state.measurements.map((m) => Object.assign({}, m, { distances: m.distancesCm.map((d) => d / 100) })),
@@ -939,6 +1073,7 @@
     updateMeasureCells(comparison);
     renderPrediction();
     updatePredictCells();
+    renderCalibration();
 
     drawSketch(p);
     drawTrajectory(p, sim);
@@ -964,7 +1099,7 @@
 
   function selectTab(name) {
     state.tab = name;
-    ["measure", "predict"].forEach((t) => {
+    TABS.forEach((t) => {
       $("tab-" + t).setAttribute("aria-selected", String(t === name));
       $("pane-" + t).hidden = t !== name;
     });
@@ -974,8 +1109,9 @@
   function rebuildAll() {
     buildSettingsControls();
     buildFitControls();
-    buildTeacherControls();
+    buildCatapultForm();
     buildTargetButtons();
+    rebuildCalibrationTable();
     rebuildMeasureTable();
     rebuildPredictTable();
     refreshLimits();
@@ -999,8 +1135,11 @@
       state.xAxis = ev.target.value;
       scheduleRender();
     });
-    $("tab-measure").addEventListener("click", () => selectTab("measure"));
-    $("tab-predict").addEventListener("click", () => selectTab("predict"));
+    TABS.forEach((t) => $("tab-" + t).addEventListener("click", () => selectTab(t)));
+    $("goto-catapult").addEventListener("click", () => {
+      selectTab("catapult");
+      $("tab-catapult").scrollIntoView({ behavior: "smooth", block: "start" });
+    });
     $("target-cm").addEventListener("input", (ev) => {
       const v = Number(ev.target.value);
       state.targetCm = ev.target.value !== "" && v > 0 ? v : null;
@@ -1013,11 +1152,23 @@
       const inputs = document.querySelectorAll("#measure-table input.shots");
       if (inputs.length) inputs[inputs.length - 1].focus();
     });
+    $("add-calib").addEventListener("click", () => {
+      state.calibration.push({ id: newId(), massG: null, lengthCm: null });
+      rebuildCalibrationTable();
+      scheduleRender();
+      const inputs = document.querySelectorAll("#calib-table input");
+      if (inputs.length) inputs[inputs.length - 2].focus();
+    });
+    $("catapult-reset").addEventListener("click", () => {
+      state.catapult = Object.assign({}, CFG.catapult);
+      buildCatapultForm();
+      refreshLimits();
+      scheduleRender();
+    });
     $("share-btn").addEventListener("click", () => {
       const url = location.href.split("#")[0] + Storage.encodeHash(state);
       history.replaceState(null, "", url);
-      const box = $("share-box");
-      box.hidden = false;
+      $("share-box").hidden = false;
       $("share-url").value = url;
       $("share-url").select();
       // Clipboard needs a secure context (https or localhost); the text box is the fallback.
@@ -1029,12 +1180,6 @@
       history.replaceState(null, "", location.href.split("#")[0]);
       state = defaultState();
       rebuildAll();
-    });
-    $("teacher-reset").addEventListener("click", () => {
-      state.overrides = { catapult: {}, springs: {} };
-      buildTeacherControls();
-      refreshLimits();
-      scheduleRender();
     });
 
     rebuildAll();
