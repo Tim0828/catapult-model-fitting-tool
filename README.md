@@ -4,21 +4,6 @@ An interactive lesson tool for middle and high school students. Teams build or r
 take measurements. They tune a physics model until it matches their shots, then use the model to predict the
 setting that hits a target. Predictions are scored, so good modelling beats trial and error.
 
-This folder implements the plan from *Catapult Challenge Hosting and Model Review.md*:
-
-| Review recommendation | Where it lives |
-|---|---|
-| Single-page app, all computation in the browser, no server needed | [`web/`](web/) |
-| Corrected model (all six issues fixed) | [`web/js/model.js`](web/js/model.js), reference in [`reference/catapult_model.py`](reference/catapult_model.py) |
-| JS validated against a Python reference | [`reference/generate_fixtures.py`](reference/generate_fixtures.py) → [`web/tests/`](web/tests/) |
-| Measurement table with repeats and spread, model curve over data, 2–3 sliders, fit error, prediction mode | [`web/`](web/) |
-| Team data in `localStorage` + shareable URL hash | [`web/js/storage.js`](web/js/storage.js) |
-| Separate small scoreboard service (Flask + SQLite, projector view) | [`scoreboard/`](scoreboard/) |
-| Pi / offline hosting | [`docs/HOSTING.md`](docs/HOSTING.md), [`deploy/`](deploy/) |
-| Corrected reference notebook | [`reference/model_reference.ipynb`](reference/model_reference.ipynb) |
-
-The original notebooks in `../Ambassador project/` are left untouched.
-
 ## Quick start
 
 **Students' tool:** open `web/index.html` in a browser. No build step, no install, no internet needed. It also works
