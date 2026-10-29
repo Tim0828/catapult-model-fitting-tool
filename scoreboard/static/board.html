@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Scoreboard</title>
+    <link rel="stylesheet" href="/static/scoreboard.css" />
+  </head>
+  <body class="board">
+    <h1>🎯 Catapult Challenge</h1>
+    <p id="status" class="muted">loading…</p>
+    <ol id="ranking" class="ranking"></ol>
+    <h2>Latest shots</h2>
+    <table>
+      <thead><tr><th>Team</th><th>Target</th><th>Landed</th><th>Miss</th><th>Points</th></tr></thead>
+      <tbody id="recent"></tbody>
+    </table>
+
+    <script>
+      "use strict";
+      const fmt = (v) => Math.round(v) + " cm";
+
+      function cell(text) {
+        const td = document.createElement("td");
+        td.textContent = text;
+        return td;
+      }
+
+      async function refresh() {
+        try {
+          const res = await fetch("/api/scoreboard", { cache: "no-store" });
+          if (!res.ok) throw new Error(res.status);
+          const data = await res.json();
+          document.getElementById("ranking").replaceChildren(
+            ...data.teams.map((t) => {
+              const li = document.createElement("li");
+              const name = document.createElement("span");
+              name.className = "name";
+              name.textContent = t.name;
+              const pts = document.createElement("span");
+              pts.className = "points";
+              pts.textContent = t.points;
+              const meta = document.createElement("span");
+              meta.className = "muted";
+              meta.textContent = t.shots ? `${t.shots} ${t.shots === 1 ? "shot" : "shots"} · best miss ${fmt(t.best_miss_cm)}` : "no shots yet";
+              li.append(name, meta, pts);
+              return li;
+            })
+          );
+          document.getElementById("recent").replaceChildren(
+            ...data.recent.map((s) => {
+              const tr = document.createElement("tr");
+              const miss = s.actual_cm - s.target_cm;
+              tr.append(cell(s.team), cell(fmt(s.target_cm)), cell(fmt(s.actual_cm)), cell((miss > 0 ? "+" : "") + fmt(miss)), cell(s.points));
+              return tr;
+            })
+          );
+          document.getElementById("status").textContent = data.teams.length ? "" : "No teams yet. The referee adds them on /referee.";
+        } catch (e) {
+          document.getElementById("status").textContent = "Cannot reach the scoreboard server, retrying…";
+        }
+      }
+
+      refresh();
+      setInterval(refresh, 3000);
+    </script>
+  </body>
+</html>

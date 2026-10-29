@@ -1,0 +1,20 @@
+# systemd unit for the scoreboard (Flask + SQLite, served by gunicorn).
+# Install: sudo cp deploy/catapult-scoreboard.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable --now catapult-scoreboard
+# Set a referee PIN below (or remove the line to allow anyone on the network to enter scores).
+
+[Unit]
+Description=Catapult Challenge scoreboard
+After=network.target
+
+[Service]
+User=pi
+WorkingDirectory=/srv/catapult/scoreboard
+Environment=SCOREBOARD_DB=/srv/catapult/scoreboard/scoreboard.db
+Environment=SCOREBOARD_PIN=change-me
+# One worker is plenty for a classroom and keeps SQLite writes simple.
+ExecStart=/srv/catapult/venv/bin/gunicorn --workers 1 --threads 4 --bind 0.0.0.0:5000 "app:create_app()"
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

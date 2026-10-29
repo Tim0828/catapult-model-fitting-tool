@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Catapult Challenge</title>
+    <meta name="description" content="Fit a physics model to your catapult measurements and predict where the ball lands." />
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1 id="app-title">Catapult Challenge</h1>
+      <div class="topbar-actions">
+        <label class="team">Team <input id="team-name" type="text" maxlength="40" placeholder="your team name" autocomplete="off" /></label>
+        <button id="share-btn" type="button">Share / save link</button>
+        <a id="scoreboard-link" class="button-link" hidden target="_blank" rel="noopener">Scoreboard</a>
+        <button id="reset-btn" type="button" class="danger">Start over</button>
+      </div>
+    </header>
+    <div id="share-box" class="share-box" hidden>
+      <label for="share-url">Bookmark this link or send it to your teammates. It contains all your data.</label>
+      <input id="share-url" type="text" readonly />
+    </div>
+
+    <main class="layout">
+      <section class="panel" aria-labelledby="settings-h">
+        <h2 id="settings-h"><span class="step">1</span> Catapult settings</h2>
+        <p class="hint">Set these the same as on your real catapult.</p>
+        <div class="settings-grid">
+          <div id="settings-controls" class="controls"></div>
+          <canvas id="catapult-sketch" class="sketch" aria-label="Sketch of the catapult at the current settings" role="img"></canvas>
+        </div>
+        <dl class="readout">
+          <div><dt>Spring energy</dt><dd id="out-energy">–</dd></div>
+          <div><dt>Launch speed</dt><dd id="out-speed">–</dd></div>
+          <div><dt>Model says it lands at</dt><dd id="out-range">–</dd></div>
+        </dl>
+      </section>
+
+      <section class="panel" aria-labelledby="fit-h">
+        <h2 id="fit-h"><span class="step">2</span> Tune the model</h2>
+        <div class="fit-score" aria-live="polite">
+          <span>Model error</span>
+          <strong id="rms">–</strong>
+          <small id="rms-note">add measurements to see how good your model is</small>
+        </div>
+        <div id="fit-controls" class="controls"></div>
+        <details class="teacher">
+          <summary>Catapult details (for teachers)</summary>
+          <p class="hint">
+            Measured properties of the printed catapult. Notice that the launch speed only depends on
+            <em>efficiency × spring energy ÷ effective mass</em>: a stiffer spring and a higher efficiency look exactly
+            the same in distance data. That is why students only tune the efficiency.
+          </p>
+          <div id="teacher-controls" class="teacher-grid"></div>
+          <p class="hint">Effective mass (ball + arm): <strong id="out-meff">–</strong></p>
+          <button id="teacher-reset" type="button">Restore lesson defaults</button>
+        </details>
+      </section>
+
+      <section class="panel plot-panel" aria-labelledby="traj-h">
+        <h2 id="traj-h">Flight path (side view, to scale)</h2>
+        <canvas id="traj-plot" class="plot" role="img" aria-label="Trajectory of the ball"></canvas>
+        <p class="legend">
+          <span class="swatch model"></span> model
+          <span class="swatch data"></span> your shots at these settings
+          <span class="swatch target"></span> target
+        </p>
+      </section>
+
+      <section class="panel plot-panel" aria-labelledby="range-h">
+        <h2 id="range-h">
+          Distance vs
+          <select id="x-axis" aria-label="Horizontal axis">
+            <option value="pullBackDeg">pull-back angle</option>
+            <option value="stopDeg">stop angle</option>
+          </select>
+        </h2>
+        <canvas id="range-plot" class="plot" role="img" aria-label="Landing distance against a setting"></canvas>
+        <p class="legend">
+          <span class="swatch model"></span> model
+          <span class="swatch data"></span> measured (bar = shortest to longest shot; pale = other settings).
+          Click the plot to change the setting.
+        </p>
+      </section>
+
+      <section class="panel wide" aria-label="Measurements and predictions">
+        <div class="tabs" role="tablist">
+          <button role="tab" id="tab-measure" aria-selected="true" aria-controls="pane-measure"><span class="step">3</span> Measurements</button>
+          <button role="tab" id="tab-predict" aria-selected="false" aria-controls="pane-predict"><span class="step">4</span> Predict &amp; score</button>
+        </div>
+
+        <div id="pane-measure" role="tabpanel" aria-labelledby="tab-measure">
+          <p class="hint">
+            Shoot 3 to 5 times at each setting and type every landing distance in cm, separated by spaces or commas
+            (use a dot for decimals). The spread shows how repeatable your catapult is: no model can do better than that.
+          </p>
+          <div class="table-wrap">
+            <table id="measure-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Spring</th><th>Pull-back</th><th>Stop</th><th>Shots (cm)</th>
+                  <th>Average ± spread</th><th>Model</th><th>Model − real</th><th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <button id="add-measurement" type="button" class="primary">+ Add row with current settings</button>
+        </div>
+
+        <div id="pane-predict" role="tabpanel" aria-labelledby="tab-predict" hidden>
+          <p class="hint">
+            Pick a target, let your model find the pull-back angle, set your catapult and lock in the prediction
+            <strong>before</strong> you shoot. Then enter where the ball really landed.
+          </p>
+          <div class="predict-row">
+            <div id="target-buttons" class="target-buttons"></div>
+            <label>or target distance <input id="target-cm" type="number" min="1" step="1" inputmode="decimal" /> cm</label>
+          </div>
+          <div id="prediction" class="prediction" aria-live="polite"></div>
+          <div class="table-wrap">
+            <table id="predict-table">
+              <thead>
+                <tr>
+                  <th>#</th><th>Target</th><th>Setting</th><th>Model said</th><th>Real landing (cm)</th>
+                  <th>Miss</th><th>Points</th><th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+              <tfoot><tr><td colspan="6">Total</td><td id="total-points">0</td><td></td></tr></tfoot>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      Every model is a simplification of reality. Model: spring energy → kinetic energy → flight with gravity
+      (and optionally air resistance). Works offline; your data stays on this device.
+    </footer>
+
+    <script src="js/config.js"></script>
+    <script src="js/model.js"></script>
+    <script src="js/analysis.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/plot.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+</html>

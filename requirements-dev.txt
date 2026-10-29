@@ -1,0 +1,5 @@
+# Python reference model, fixture generator and all tests.
+numpy>=1.24
+scipy>=1.10
+pytest>=7
+-r scoreboard/requirements.txt

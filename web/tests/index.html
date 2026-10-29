@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Catapult tests</title>
+    <style>
+      body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; background: #fff; color: #222; }
+      .pass { color: #12803f; }
+      .fail { color: #c62828; font-weight: 700; }
+      pre { white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <h1>Catapult tool: JavaScript tests</h1>
+    <p>Checks web/js against the Python reference (fixtures.js). Open this page in a browser, or run
+      <code>python scripts/run_browser_tests.py</code>.</p>
+    <pre id="summary" data-status="running">running…</pre>
+    <pre id="log"></pre>
+
+    <script src="../js/model.js"></script>
+    <script src="../js/analysis.js"></script>
+    <script src="../js/storage.js"></script>
+    <script src="../js/plot.js"></script>
+    <script src="fixtures.js"></script>
+    <script src="tests.js"></script>
+  </body>
+</html>

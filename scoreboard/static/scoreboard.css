@@ -1,0 +1,165 @@
+:root {
+  --bg: #f4f6fa;
+  --panel: #ffffff;
+  --ink: #1d2433;
+  --muted: #5d6779;
+  --line: #d9dee8;
+  --accent: #1f6feb;
+  --bad: #d13b2a;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151c;
+    --panel: #1b2029;
+    --ink: #e7eaf0;
+    --muted: #9aa3b5;
+    --line: #2d3443;
+    --accent: #4c8dff;
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0 auto;
+  max-width: 1100px;
+  padding: 16px;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a {
+  color: var(--accent);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--bad);
+  font-weight: 600;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+input,
+select,
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+}
+
+button {
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.row label {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.9rem;
+}
+
+.plain {
+  list-style: none;
+  padding: 0;
+}
+
+.plain li {
+  padding: 0.25rem 0;
+}
+
+/* Projector view: large and readable from the back of the room. */
+
+.board {
+  font-size: 22px;
+}
+
+.board h1 {
+  font-size: 2.4rem;
+  margin: 0 0 0.5rem;
+}
+
+.ranking {
+  padding: 0;
+  list-style: none;
+  counter-reset: rank;
+}
+
+.ranking li {
+  counter-increment: rank;
+  display: grid;
+  grid-template-columns: 2.5rem 1fr auto;
+  grid-template-areas: "rank name points" "rank meta points";
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.6rem 1rem;
+  margin-bottom: 0.6rem;
+}
+
+.ranking li::before {
+  content: counter(rank);
+  grid-area: rank;
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.ranking li:first-child {
+  border-color: var(--accent);
+  border-width: 3px;
+}
+
+.ranking .name {
+  grid-area: name;
+  font-weight: 700;
+  font-size: 1.3em;
+}
+
+.ranking .muted {
+  grid-area: meta;
+  font-size: 0.75em;
+}
+
+.ranking .points {
+  grid-area: points;
+  font-size: 2.2rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}

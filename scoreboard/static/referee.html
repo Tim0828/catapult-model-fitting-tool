@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Referee</title>
+    <link rel="stylesheet" href="/static/scoreboard.css" />
+  </head>
+  <body>
+    <h1>Referee</h1>
+    <p class="muted">Enter each prediction shot here. Points: full 10 within 5 cm of the target, one less per extra 5 cm.
+      The projector view is at <a href="/">/</a>.</p>
+
+    <form id="pin-form" class="row">
+      <label>Referee PIN <input id="pin" type="password" autocomplete="off" placeholder="only if one was set" /></label>
+    </form>
+
+    <h2>Add a shot</h2>
+    <form id="shot-form" class="row">
+      <label>Team <select id="team" required></select></label>
+      <label>Target (cm) <input id="target" type="number" min="0" step="any" required /></label>
+      <label>Landed at (cm) <input id="actual" type="number" min="0" step="any" required /></label>
+      <button type="submit" class="primary">Add shot</button>
+    </form>
+    <p id="message" role="status" class="muted"></p>
+
+    <h2>Teams</h2>
+    <form id="team-form" class="row">
+      <label>New team <input id="team-name" type="text" maxlength="40" required /></label>
+      <button type="submit">Add team</button>
+    </form>
+    <ul id="teams" class="plain"></ul>
+
+    <h2>Latest shots</h2>
+    <table>
+      <thead><tr><th>Team</th><th>Target</th><th>Landed</th><th>Points</th><th></th></tr></thead>
+      <tbody id="recent"></tbody>
+    </table>
+
+    <script>
+      "use strict";
+      const $ = (id) => document.getElementById(id);
+
+      try {
+        $("pin").value = sessionStorage.getItem("referee-pin") || "";
+      } catch (e) {
+        /* storage unavailable: the PIN just has to be typed again */
+      }
+      $("pin").addEventListener("input", () => {
+        try {
+          sessionStorage.setItem("referee-pin", $("pin").value);
+        } catch (e) {
+          /* ignore */
+        }
+      });
+
+      function say(text, isError) {
+        $("message").textContent = text;
+        $("message").className = isError ? "error" : "muted";
+      }
+
+      async function api(method, url, body) {
+        const res = await fetch(url, {
+          method,
+          headers: { "Content-Type": "application/json", "X-Referee-Pin": $("pin").value },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || "request failed (" + res.status + ")");
+        }
+        return res.status === 204 ? null : res.json();
+      }
+
+      function button(text, onClick) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = text;
+        b.addEventListener("click", onClick);
+        return b;
+      }
+
+      async function refresh() {
+        const data = await api("GET", "/api/scoreboard");
+        const selected = $("team").value;
+        $("team").replaceChildren(
+          ...data.teams.map((t) => {
+            const o = document.createElement("option");
+            o.value = t.id;
+            o.textContent = t.name;
+            return o;
+          })
+        );
+        if (selected) $("team").value = selected;
+        $("teams").replaceChildren(
+          ...data.teams.map((t) => {
+            const li = document.createElement("li");
+            li.textContent = `${t.name}: ${t.points} points (${t.shots} shots) `;
+            li.append(
+              button("remove", async () => {
+                if (!confirm(`Remove team ${t.name} and all its shots?`)) return;
+                await run(() => api("DELETE", "/api/teams/" + t.id), "Team removed.");
+              })
+            );
+            return li;
+          })
+        );
+        $("recent").replaceChildren(
+          ...data.recent.map((s) => {
+            const tr = document.createElement("tr");
+            [s.team, s.target_cm + " cm", s.actual_cm + " cm", s.points].forEach((v) => {
+              const td = document.createElement("td");
+              td.textContent = v;
+              tr.append(td);
+            });
+            const td = document.createElement("td");
+            td.append(button("undo", () => run(() => api("DELETE", "/api/shots/" + s.id), "Shot removed.")));
+            tr.append(td);
+            return tr;
+          })
+        );
+      }
+
+      async function run(action, okText) {
+        try {
+          const result = await action();
+          say(typeof okText === "function" ? okText(result) : okText, false);
+          await refresh();
+          return true;
+        } catch (e) {
+          say(e.message, true);
+          return false;
+        }
+      }
+
+      $("pin-form").addEventListener("submit", (ev) => ev.preventDefault());
+
+      $("shot-form").addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const body = { team_id: Number($("team").value), target_cm: Number($("target").value), actual_cm: Number($("actual").value) };
+        const ok = await run(() => api("POST", "/api/shots", body), (r) => `Shot added: ${r.points} points.`);
+        if (ok) $("actual").value = "";
+      });
+
+      $("team-form").addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const ok = await run(() => api("POST", "/api/teams", { name: $("team-name").value }), "Team added.");
+        if (ok) $("team-name").value = "";
+      });
+
+      refresh().catch((e) => say(e.message, true));
+    </script>
+  </body>
+</html>
