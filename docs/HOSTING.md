@@ -60,8 +60,19 @@ write per shot plus a poll from the projector every 3 seconds.
 
 ## GitHub Pages
 
-Publish the contents of `web/` (for example, from a `gh-pages` branch or with a Pages workflow that uploads
-`catapult-tool/web`). There is no build step.
+The repository includes a workflow at [`.github/workflows/pages.yml`](../.github/workflows/pages.yml) that publishes
+the contents of `web/` whenever `master` is updated. There is no build step.
+
+To enable it for a repository:
+
+1. Push the workflow to GitHub.
+2. Open **Settings → Pages**.
+3. Under **Build and deployment**, choose **GitHub Actions** as the source.
+4. Push to `master`, or start **Deploy web app to GitHub Pages** from the **Actions** tab.
+
+The resulting site is normally available at
+`https://<owner>.github.io/<repository>/`. The optional Flask scoreboard is not deployed by this workflow; it needs
+a server such as the Raspberry Pi setup described above.
 
 ## Why not PlutoSliderServer?
 
